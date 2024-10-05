@@ -95,14 +95,10 @@ def main():
         **bootstrap_base,
         "artifacts": artifacts,
         "launcher": {
-            "artifactId": "launcher",
-            "classifier": "",
-            "extension": "jar",
-            "groupId": "net.runelite",
-            "properties": {},
+            "mainClass": "net.runelite.launcher.Launcher",
             "version": launcher_version
-        },
-        "dependencyHashes": dict(sorted(dependency_hashes.items()))}
+        }
+    }
     print(json.dumps(dict(sorted(document.items())), indent=4))
 
 
