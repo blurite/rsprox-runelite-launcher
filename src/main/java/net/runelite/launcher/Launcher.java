@@ -436,6 +436,9 @@ public class Launcher
 			if (options.has("developer-mode")) {
 				clientArgs.add("--developer-mode");
 			}
+			if (options.has("port")) {
+				clientArgs.add("--port=" + options.valueOf("port"));
+			}
 			SplashScreen.stage(.90, "Starting the client", "");
 
 			var classpath = artifacts.stream()
