@@ -75,19 +75,7 @@ public class RuneLitePatcher {
         val inputPath = path.parent.resolve(path.nameWithoutExtension + "-$time-patched." + path.extension)
         val configurationPath = Path(System.getProperty("user.home"), ".rsprox")
         val runelitePath = configurationPath.resolve("runelite")
-        val shaPath = runelitePath.resolve("latest-runelite-$worldClientPort.sha256")
         val existingClient = runelitePath.resolve("latest-runelite-$worldClientPort.jar")
-        val currentSha256 = sha256Hash(path.readBytes())
-        if (shaPath.exists(LinkOption.NOFOLLOW_LINKS) &&
-            existingClient.exists(LinkOption.NOFOLLOW_LINKS)
-        ) {
-            val existingSha256 = shaPath.readText(Charsets.UTF_8)
-            if (existingSha256 == currentSha256) {
-                logger.debug("Using cached runelite-client as sha-256 matches")
-                inputPath.writeBytes(existingClient.readBytes())
-                return inputPath
-            }
-        }
         existingClient.deleteIfExists()
         val copy = path.copyTo(inputPath)
         val inMemoryZip = readZipFileIntoMemory(copy)
@@ -138,7 +126,6 @@ public class RuneLitePatcher {
             throw e
         }
         jarFile.copyTo(existingClient.toFile())
-        shaPath.writeText(currentSha256, Charsets.UTF_8)
         return copy
     }
 
