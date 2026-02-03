@@ -265,8 +265,8 @@ public class RuneLitePatcher {
         replacementResource: String,
         port: Int,
     ) {
-        val replacementResourceFile = loadResource(zip[name], replacementResource)
-        if (port != 43600) {
+        val (replacementResourceFile, count) = loadResourceWithCount(zip[name], replacementResource)
+        if (port != 43600 && count < 4) {
             val inputPort = toByteArray(listOf(3, 0, 0, 43600 ushr 8 and 0xFF, 43600 and 0xFF))
             val outputPort = toByteArray(listOf(3, 0, 0, port ushr 8 and 0xFF, port and 0xFF))
 
@@ -364,6 +364,30 @@ public class RuneLitePatcher {
                     .getResourceAsStream("$name-$count.class")
                     ?.readAllBytes()
                     ?: throw IllegalStateException("Unable to locate replacement resource for $className.")
+            }
+            count++
+        }
+    }
+
+    private fun loadResourceWithCount(
+        originalBytes: ByteArray?,
+        className: String,
+    ): Pair<ByteArray, Int> {
+        val name = className.replace(".class", "")
+        var count = 1
+        while (true) {
+            val originalKnownResource =
+                RuneLitePatcher::class.java
+                    .getResourceAsStream("Original $name-$count.class")
+                    ?.readAllBytes()
+                    ?: throw IllegalStateException("Resource $className is out of date.")
+            if (originalKnownResource.contentEquals(originalBytes)) {
+                val array =
+                    RuneLitePatcher::class.java
+                        .getResourceAsStream("$name-$count.class")
+                        ?.readAllBytes()
+                        ?: throw IllegalStateException("Unable to locate replacement resource for $className.")
+                return array to count
             }
             count++
         }
