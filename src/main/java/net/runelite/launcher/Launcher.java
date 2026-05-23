@@ -507,7 +507,9 @@ public class Launcher
 			name = options.valueOf("client_name").toString();
 			log.info("Replacing RuneLite client name with " + name);
 		}
-		tasks.add(buildRuneLiteClientPatchTask(artifacts, count, worldClientPort, name));
+		String bootstrap = String.valueOf(options.valueOf("bootstrap_url"));
+		boolean isCustomTarget = !bootstrap.contains("static.runelite.net");
+		tasks.add(buildRuneLiteClientPatchTask(artifacts, count, worldClientPort, name, isCustomTarget));
 		tasks.add(buildRuneLiteApiPatchTask(artifacts, count));
 		List<Future<Boolean>> futures = ForkJoinPool.commonPool().invokeAll(tasks);
 		for (Future<Boolean> future : futures) {
@@ -583,7 +585,8 @@ public class Launcher
 			List<Artifact> artifacts,
 			AtomicInteger num,
 			int worldClientPort,
-			String name
+			String name,
+			boolean isCustomTarget
 	) {
 		return () -> {
 			try {
@@ -596,7 +599,8 @@ public class Launcher
 				Path localHostPatch = patcher.patchLocalHostSupport(
 						new File(REPO_DIR, clientArtifact.getName()).toPath(),
 						worldClientPort,
-						name
+						name,
+						isCustomTarget
 				);
 				clientArtifact.setName(localHostPatch.toFile().getName());
 				synchronized (splashScreenLock) {

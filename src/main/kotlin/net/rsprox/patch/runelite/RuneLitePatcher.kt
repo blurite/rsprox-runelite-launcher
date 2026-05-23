@@ -4,7 +4,6 @@ import jdk.security.jarsigner.JarSigner
 import net.rsprox.patch.PatchResult
 import net.rsprox.patch.findBoyerMoore
 import org.slf4j.LoggerFactory
-import java.io.File
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.KeyStore
@@ -13,15 +12,11 @@ import java.security.NoSuchAlgorithmException
 import kotlin.io.path.Path
 import kotlin.io.path.copyTo
 import kotlin.io.path.deleteIfExists
-import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.moveTo
 import kotlin.io.path.nameWithoutExtension
-import kotlin.io.path.readBytes
-import kotlin.io.path.readText
 import kotlin.io.path.writeBytes
-import kotlin.io.path.writeText
 
 @Suppress("DuplicatedCode", "SameParameterValue", "unused")
 public class RuneLitePatcher {
@@ -70,6 +65,7 @@ public class RuneLitePatcher {
         path: Path,
         worldClientPort: Int,
         name: String?,
+        isCustomTarget: Boolean,
     ): Path {
         val time = System.currentTimeMillis()
         val inputPath = path.parent.resolve(path.nameWithoutExtension + "-$time-patched." + path.extension)
@@ -86,22 +82,37 @@ public class RuneLitePatcher {
         replaceWorldClient(
             inMemoryZip,
             "net/runelite/client/game/WorldClient.class",
-            "Original WorldClient.class",
-            "WorldClient.class",
+            WorldClientPatcher(),
             worldClientPort,
         )
-        replaceRunelite(
-            inMemoryZip,
-            "net/runelite/client/RuneLite.class",
-            "RuneLite.class",
-            name,
-        )
-        replaceClientLoader(
-            inMemoryZip,
-            "net/runelite/client/rs/ClientLoader.class",
-            "ClientLoader.class",
-            worldClientPort,
-        )
+        try {
+            replaceRunelite(
+                inMemoryZip,
+                "net/runelite/client/RuneLite.class",
+                DeveloperToolsPatcher(),
+                name,
+            )
+        } catch (t: Throwable) {
+            if (isCustomTarget) {
+                logger.warn("Unable to patch RuneLite class - developer tools might not be enabled.", t)
+            } else {
+                throw t
+            }
+        }
+        try {
+            replaceClientLoader(
+                inMemoryZip,
+                "net/runelite/client/rs/ClientLoader.class",
+                ClientLoaderPatcher(),
+                worldClientPort,
+            )
+        } catch (t: Throwable) {
+            if (isCustomTarget) {
+                logger.warn("Unable to patch ClientLoader class - connection might not establish.", t)
+            } else {
+                throw t
+            }
+        }
         if (name != null) {
             writeRuneLiteProperties(
                 inMemoryZip,
@@ -231,42 +242,18 @@ public class RuneLitePatcher {
         }
     }
 
-    private fun replaceClass(
-        classFile: File,
-        originalResource: String,
-        replacementResource: String,
-    ) {
-        val replacementResourceFile =
-            RuneLitePatcher::class.java
-                .getResourceAsStream(replacementResource)
-                ?.readAllBytes()
-                ?: throw IllegalStateException("$replacementResource resource not available")
-
-        val originalResourceFile =
-            RuneLitePatcher::class.java
-                .getResourceAsStream(originalResource)
-                ?.readAllBytes()
-                ?: throw IllegalStateException("$originalResource resource not available.")
-
-        val originalBytes = classFile.readBytes()
-        if (!originalBytes.contentEquals(originalResourceFile)) {
-            throw IllegalStateException("Unable to patch RuneLite $replacementResource - out of date.")
-        }
-
-        // Overwrite the WorldClient.class file to read worlds from our proxied-list
-        // This ensures that the world switcher still goes through the proxy tool,
-        // instead of just connecting to RuneLite's own world list API.
-        classFile.writeBytes(replacementResourceFile)
-    }
-
     private fun replaceClientLoader(
         zip: InMemoryZip,
         name: String,
-        replacementResource: String,
+        patcher: ClassPatcher,
         port: Int,
     ) {
-        val (replacementResourceFile, count) = loadResourceWithCount(zip[name], replacementResource)
-        if (port != 43600 && count < 4) {
+        val originalResourceFile =
+            zip[name]
+                ?: error("Resource $name not found")
+        val replacementResourceFile = patcher.patch(originalResourceFile)
+
+        if (port != 43600) {
             val inputPort = toByteArray(listOf(3, 0, 0, 43600 ushr 8 and 0xFF, 43600 and 0xFF))
             val outputPort = toByteArray(listOf(3, 0, 0, port ushr 8 and 0xFF, port and 0xFF))
 
@@ -274,8 +261,6 @@ public class RuneLitePatcher {
             if (index != -1) {
                 replacementResourceFile.replaceBytes(inputPort, outputPort)
                 logger.debug("Patching port from 43600 to $port for clientloader")
-            } else {
-                logger.warn("Unable to patch clientloader port.")
             }
         }
         zip[name] = replacementResourceFile
@@ -284,15 +269,14 @@ public class RuneLitePatcher {
     private fun replaceWorldClient(
         zip: InMemoryZip,
         name: String,
-        originalResource: String,
-        replacementResource: String,
+        patcher: ClassPatcher,
         port: Int,
     ) {
-        val replacementResourceFile =
-            RuneLitePatcher::class.java
-                .getResourceAsStream(replacementResource)
-                ?.readAllBytes()
-                ?: throw IllegalStateException("$replacementResource resource not available")
+        val originalResourceFile =
+            zip[name]
+                ?: error("Resource $name not found")
+
+        val replacementResourceFile = patcher.patch(originalResourceFile)
         if (port != 43600) {
             val inputPort = toByteArray(listOf(3, 0, 0, 43600 ushr 8 and 0xFF, 43600 and 0xFF))
             val outputPort = toByteArray(listOf(3, 0, 0, port ushr 8 and 0xFF, port and 0xFF))
@@ -306,17 +290,6 @@ public class RuneLitePatcher {
             }
         }
 
-        val originalResourceFile =
-            RuneLitePatcher::class.java
-                .getResourceAsStream(originalResource)
-                ?.readAllBytes()
-                ?: throw IllegalStateException("$originalResource resource not available.")
-
-        val originalBytes = zip[name]
-        if (!originalBytes.contentEquals(originalResourceFile)) {
-            throw IllegalStateException("Unable to patch RuneLite $replacementResource - out of date.")
-        }
-
         // Overwrite the WorldClient.class file to read worlds from our proxied-list
         // This ensures that the world switcher still goes through the proxy tool,
         // instead of just connecting to RuneLite's own world list API.
@@ -326,10 +299,13 @@ public class RuneLitePatcher {
     private fun replaceRunelite(
         zip: InMemoryZip,
         name: String,
-        replacementResource: String,
+        patcher: ClassPatcher,
         clientName: String?,
     ) {
-        var replacementResourceFile = loadResource(zip[name], replacementResource)
+        val originalResourceFile =
+            zip[name]
+                ?: error("Resource $name not found")
+        var replacementResourceFile = patcher.patch(originalResourceFile)
 
         if (clientName != null) {
             val sourceDirectory = ".runelite"
@@ -345,52 +321,6 @@ public class RuneLitePatcher {
         }
 
         zip[name] = replacementResourceFile
-    }
-
-    private fun loadResource(
-        originalBytes: ByteArray?,
-        className: String,
-    ): ByteArray {
-        val name = className.replace(".class", "")
-        var count = 1
-        while (true) {
-            val originalKnownResource =
-                RuneLitePatcher::class.java
-                    .getResourceAsStream("Original $name-$count.class")
-                    ?.readAllBytes()
-                    ?: throw IllegalStateException("Resource $className is out of date.")
-            if (originalKnownResource.contentEquals(originalBytes)) {
-                return RuneLitePatcher::class.java
-                    .getResourceAsStream("$name-$count.class")
-                    ?.readAllBytes()
-                    ?: throw IllegalStateException("Unable to locate replacement resource for $className.")
-            }
-            count++
-        }
-    }
-
-    private fun loadResourceWithCount(
-        originalBytes: ByteArray?,
-        className: String,
-    ): Pair<ByteArray, Int> {
-        val name = className.replace(".class", "")
-        var count = 1
-        while (true) {
-            val originalKnownResource =
-                RuneLitePatcher::class.java
-                    .getResourceAsStream("Original $name-$count.class")
-                    ?.readAllBytes()
-                    ?: throw IllegalStateException("Resource $className is out of date.")
-            if (originalKnownResource.contentEquals(originalBytes)) {
-                val array =
-                    RuneLitePatcher::class.java
-                        .getResourceAsStream("$name-$count.class")
-                        ?.readAllBytes()
-                        ?: throw IllegalStateException("Unable to locate replacement resource for $className.")
-                return array to count
-            }
-            count++
-        }
     }
 
     private fun patchPort(
