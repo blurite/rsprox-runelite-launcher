@@ -686,14 +686,17 @@ public class Launcher
 		final byte[] bytes = bootstrapResp.body();
 		final byte[] signature = bootstrapSigResp.body();
 
-		Certificate certificate = getCertificate();
-		Signature s = Signature.getInstance("SHA256withRSA");
-		s.initVerify(certificate);
-		s.update(bytes);
+		// Only verify the bootstrap for official bootstraps, as other clients may use different certificates
+		if (bootstrap.contains("static.runelite.net")) {
+			Certificate certificate = getCertificate();
+			Signature s = Signature.getInstance("SHA256withRSA");
+			s.initVerify(certificate);
+			s.update(bytes);
 
-		if (!s.verify(signature))
-		{
-			throw new VerificationException("Unable to verify bootstrap signature");
+			if (!s.verify(signature))
+			{
+				throw new VerificationException("Unable to verify bootstrap signature");
+			}
 		}
 
 		Gson g = new Gson();
